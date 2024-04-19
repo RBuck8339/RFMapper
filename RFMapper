@@ -1,0 +1,76 @@
+import pandas as pd
+import matplotlib.pyplot as plt
+import seaborn as sns
+import csv
+from sklearn.model_selection import train_test_split
+from sklearn.ensemble import RandomForestClassifier
+from sklearn.metrics import accuracy_score, balanced_accuracy_score, confusion_matrix, roc_auc_score, ConfusionMatrixDisplay
+from sklearn.preprocessing import MinMaxScaler, StandardScaler
+from sklearn.preprocessing import normalize
+
+
+for t in [4]:
+    for j in [2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14]:
+        for k in [0.1, 0.15, 0.2, 0.25, 0.3, 0.35, 0.4, 0.45, 0.5, 0.55, 0.6]:   
+            if(t == 4 and (j < 5 or j == 5 and k < 0.2)):
+                continue
+
+            dir = "C:/Users/ronan/OneDrive/Documents/GitHub/test/Kepler_Mapper/Outputs/"+ "ParamSearch/nclusters" + str(t) + "_ncubes" + str(j) + "_percoverlap" + str(k) + "/"
+            confusion_dir = "C:/Users/ronan/TDAMapperRF/Normalized Confusion/"
+            count_dir = "C:/Users/ronan/TDAMapperRF/Normalized Count of Labels/"
+
+            print("Currently working on: nclusters = " + str(t) + ", ncubes = " + str(j) + ", percoverlap = " + str(k))
+
+            # Load and prepare the dataset
+            filename = dir + 'GraphNodeDistributions.csv'  # Update with the actual file path
+            data = pd.read_csv(filename)
+            X = pd.DataFrame(normalize((data.iloc[:, 1:-1]).to_numpy(), axis=1), columns=((data.iloc[:, 1:-1]).columns))
+            
+            #X = data.iloc[:, 1:-1]  # Exclude first (ID) and last (label) column for features
+            y = data.iloc[:, -1]    # Last column as labels
+
+            # Split the data
+            X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=42)
+
+            # Train the model
+            clf = RandomForestClassifier(n_estimators=300, random_state=42)
+            clf.fit(X_train, y_train)
+
+            # Make predictions
+            y_pred = clf.predict(X_test)
+
+            # Evaluate the model
+            accuracy = accuracy_score(y_test, y_pred)
+            balanced_acc = balanced_accuracy_score(y_test, y_pred)
+            print(f'Accuracy: {accuracy:.2f}')
+            print(f'Balanced Accuracy: {balanced_acc:.2f}')
+
+            # AUROC (Note: Only applicable to binary classification tasks)
+            try:
+                auroc = roc_auc_score(y_test, clf.predict_proba(X_test)[:, 1])
+                print(f'AUROC: {auroc:.2f}')
+            except ValueError:
+                print("AUROC could not be calculated - this might be due to a multi-class problem or only one class present in y_true.")
+
+            # Display Confusion Matrix
+            conf_matrix = confusion_matrix(y_test, y_pred)
+            disp = ConfusionMatrixDisplay(confusion_matrix=conf_matrix)
+            disp.plot(cmap=plt.cm.Blues)
+            plt.title('Confusion Matrix')
+            plt.savefig(confusion_dir + "Normalized_nclusters" + str(t) + "_ncubes" + str(j) + "_percoverlap" + str(k) + ".png")
+
+            # Plot label distribution
+            plt.figure(figsize=(10, 6))
+            sns.countplot(x=y.name, data=data)
+            plt.title('Counts of Labels')
+            plt.xlabel('Label')
+            plt.ylabel('Count')
+            plt.savefig(count_dir + "Normalized_nclusters" + str(t) + "_ncubes" + str(j) + "_percoverlap" + str(k) + ".png")
+
+            # Write to CSV
+
+            csv_columns = ["n_clusters", "n_cubes", "percent_overlap", "Accuracy", "Balanced Accuracy", "AUROC"]
+
+            with open('RF_Metrics_Normalized.csv', 'a', newline='') as csvfile:
+                writer = csv.DictWriter(csvfile, fieldnames=csv_columns)
+                writer.writerow({'n_clusters': t, 'n_cubes': j, 'percent_overlap': k, "Accuracy": accuracy, "Balanced Accuracy": balanced_acc, "AUROC": auroc})
