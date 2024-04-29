@@ -2,22 +2,27 @@ import pandas as pd
 import matplotlib.pyplot as plt
 import seaborn as sns
 import csv
+import numpy as np
+import torch
+import re
 from sklearn.model_selection import train_test_split
 from sklearn.ensemble import RandomForestClassifier
 from sklearn.metrics import accuracy_score, balanced_accuracy_score, confusion_matrix, roc_auc_score, ConfusionMatrixDisplay
 from sklearn.preprocessing import MinMaxScaler, StandardScaler
 from sklearn.preprocessing import normalize
+from ogb.graphproppred import Evaluator
 
 for t in [2, 3, 4]:
     for j in [2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14]:
         for k in [0.1, 0.15, 0.2, 0.25, 0.3, 0.35, 0.4, 0.45, 0.5, 0.55, 0.6]:   
-            if(t == 2 or t == 3 or (t == 4 and (j < 4 or j == 4 and k < 0.6))):
-                print("Skipping: Currently working on: nclusters = " + str(t) + ", ncubes = " + str(j) + ", percoverlap = " + str(k))
+            if(t == 2 or t == 3 or t == 4 and (j < 11 or (j == 11 and k < 0.4))):
+                print("Skipping: nclusters = " + str(t) + ", ncubes = " + str(j) + ", percoverlap = " + str(k))
                 continue;
 
+
             dir = "C:/Users/ronan/OneDrive/Documents/GitHub/test/Kepler_Mapper/Outputs/"+ "ParamSearch/nclusters" + str(t) + "_ncubes" + str(j) + "_percoverlap" + str(k) + "/"
-            confusion_dir = "C:/Users/ronan/TDAMapperRF/MF Confusion/"
-            count_dir = "C:/Users/ronan/TDAMapperRF/MF Count of Labels/"
+            confusion_dir = "C:/Users/ronan/TDAMapperRF/MF_Normalized Confusion/"
+            count_dir = "C:/Users/ronan/TDAMapperRF/MF_Normalized Count Of Labels/"
 
             print("Currently working on: nclusters = " + str(t) + ", ncubes = " + str(j) + ", percoverlap = " + str(k))
 
@@ -34,11 +39,16 @@ for t in [2, 3, 4]:
             del X_MF['HIV_active']
 
             new_df = pd.merge(X_my, X_MF, on='graph number', how="inner")
-            X = new_df.iloc[:, 1:]
+            X = pd.DataFrame(normalize((new_df.iloc[:, 1:]).to_numpy(), axis=1), columns=((new_df.iloc[:, 1:]).columns))
 
 
             # Split the data
             X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=42)
+
+            # Use regex since tensors is a string
+            pattern = r'\d+'  
+            new = y_train.str.replace(pattern, '')
+            y_train = new
 
             # Train the model
             clf = RandomForestClassifier(n_estimators=300, random_state=42)
@@ -47,16 +57,44 @@ for t in [2, 3, 4]:
             # Make predictions
             y_pred = clf.predict(X_test)
 
+            # Use regex since tensors is a string
+            pattern = r'\d+'  
+            y_true = np.array([int(re.findall(pattern, val)[0]) for val in  y_test])
+            pattern = r'\d+'  
+            new_y_pred = np.array([int(re.findall(pattern, val)[0]) for val in  y_pred])
+
+            y_true = torch.tensor(y_true.reshape(-1, 1))
+            y_pred = torch.tensor(new_y_pred.reshape(-1, 1))
+
             # Evaluate the model
-            accuracy = accuracy_score(y_test, y_pred)
-            balanced_acc = balanced_accuracy_score(y_test, y_pred)
+            accuracy = accuracy_score(y_true, y_pred)
+            balanced_acc = balanced_accuracy_score(y_true, y_pred)
             print(f'Accuracy: {accuracy:.2f}')
             print(f'Balanced Accuracy: {balanced_acc:.2f}')
 
+            evaluator = Evaluator(name = "ogbg-molhiv")
+            
+            y_test = y_test.to_numpy()
+
+
+
+            input_dict = {"y_true": y_true, "y_pred":y_pred}
+
+            res = (evaluator.eval(input_dict=input_dict))
+            auroc = (res['rocauc'])
+            print(f'AUROC: {auroc:.3f}')
+
+            
+            print("\nBreak\n")
+            print("Copmparing y_pred with predict_proba: ")
+            print(y_pred)
+            print(clf.predict_proba(X_test)[:, 1])
+
             # AUROC (Note: Only applicable to binary classification tasks)
             try:
-                auroc = roc_auc_score(y_test, clf.predict_proba(X_test)[:, 1])
-                print(f'AUROC: {auroc:.2f}')
+                #auroc = roc_auc_score(y_true, clf.predict_proba(X_test)[:, 1])
+                auroc = roc_auc_score(y_true, y_pred)
+                print(f'AUROC2: {auroc:.2f}')
             except ValueError:
                 print("AUROC could not be calculated - this might be due to a multi-class problem or only one class present in y_true.")
 
@@ -67,7 +105,7 @@ for t in [2, 3, 4]:
             disp.plot(cmap=plt.cm.Blues)
             plt.title('Confusion Matrix')
             plt.savefig(confusion_dir + "nclusters" + str(t) + "_ncubes" + str(j) + "_percoverlap" + str(k) + ".png")
-
+            
             # Plot label distribution
             plt.figure(figsize=(10, 6))
             sns.countplot(x=y.name, data=data)
@@ -75,13 +113,15 @@ for t in [2, 3, 4]:
             plt.xlabel('Label')
             plt.ylabel('Count')
             plt.savefig(count_dir + "nclusters" + str(t) + "_ncubes" + str(j) + "_percoverlap" + str(k) + ".png")
+           
+            '''
 
-            # Write to CSV
-
+            '''
+            
             csv_columns = ["n_clusters", "n_cubes", "percent_overlap", "Accuracy", "Balanced Accuracy", "AUROC"]
 
-            with open('RF_Metrics_MF.csv', 'a', newline='') as csvfile:
+            with open('RF_Metrics_MF_NewEval.csv', 'a', newline='') as csvfile:
                 writer = csv.DictWriter(csvfile, fieldnames=csv_columns)
                 writer.writerow({'n_clusters': t, 'n_cubes': j, 'percent_overlap': k, "Accuracy": accuracy, "Balanced Accuracy": balanced_acc, "AUROC": auroc})
             '''
-            
+            # Write to CSV
