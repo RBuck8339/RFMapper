@@ -10,7 +10,6 @@ import re
 from sklearn.model_selection import train_test_split
 from sklearn.ensemble import RandomForestClassifier
 from sklearn.metrics import accuracy_score, balanced_accuracy_score, confusion_matrix, roc_auc_score, ConfusionMatrixDisplay
-from sklearn.preprocessing import MinMaxScaler, StandardScaler
 from sklearn.preprocessing import normalize
 from ogb.graphproppred import Evaluator
 
@@ -19,45 +18,19 @@ from keras import Sequential
 import keras
 
 from MLPHelper import MLP
+from MLPHelper import MyDataset
 
-
-class MyDataset(Dataset):
-    def __init__(self, X, y):
-        self.X = X
-        self.y = y
-
-    def __len__(self):
-        return len(self.X)
-
-    def __getitem__(self, idx):
-        return self.X[idx], self.y[idx]
-
-# Use pytorch, keras, scikitlearn
-'''
-import torch
-import torch.nn as nn
-
-# Define the MLP class
-class MLP(nn.Module):
-    def __init__(self, input_size, hidden_size, output_size):
-        super(MLP, self).__init__()
-        self.fc1 = nn.Linear(input_size, hidden_size)  # First fully connected layer
-        self.fc2 = nn.Linear(hidden_size, output_size)  # Second fully connected layer
-
-    def forward(self, x):
-        x = torch.relu(self.fc1(x))  # ReLU activation for the first layer
-        x = self.fc2(x)  # Output layer
-'''
+row_num = -1
 
 for t in [2, 3, 4]:
     for j in [2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14]:
         for k in [0.1, 0.15, 0.2, 0.25, 0.3, 0.35, 0.4, 0.45, 0.5, 0.55, 0.6]:  
-            '''
-            if(t == 2 or t == 3 or (t == 4 and (j < 3 or j == 3 and k < 0.4))):
+
+            row_num+= 1 # Since we only need one row at a time
+
+            if(t == 3 or t == 4):
                 print("Skipping: nclusters = " + str(t) + ", ncubes = " + str(j) + ", percoverlap = " + str(k))
-                continue;
-            ''' 
-            
+                continue
 
             evaluator = Evaluator(name = "ogbg-molhiv")
 
@@ -71,8 +44,8 @@ for t in [2, 3, 4]:
             filename = dir + 'GraphNodeDistributions.csv'  # Update with the actual file path
             data = pd.read_csv(filename)
             X_MF = pd.read_csv('C:/Users/ronan/TDAMapperRF/MorganFingerprint.csv')
+
             #X = pd.DataFrame(normalize((data.iloc[:, 1:-1]).to_numpy(), axis=1), columns=((data.iloc[:, 1:-1]).columns))
-            
 
             X_my = data.iloc[:, :-1]  # Exclude first (ID) and last (label) column for features
             y = data.iloc[:, -1]    # Last column as labels
@@ -80,64 +53,37 @@ for t in [2, 3, 4]:
             del X_MF['HIV_active']
 
             new_df = pd.merge(X_my, X_MF, on='graph number', how="inner")
-            X = pd.DataFrame(normalize((new_df.iloc[:, 1:]).to_numpy(), axis=1), columns=((new_df.iloc[:, 1:]).columns))
+            
+            print(new_df.head())
 
+            #X = pd.DataFrame(normalize((new_df.iloc[:, 1:]).to_numpy(), axis = 1), columns=((new_df.iloc[:, 1:]).columns))  # Why did i normalize this?
+            X = pd.DataFrame(new_df.iloc[:, 1:], columns=((new_df.iloc[:, 1:]).columns))  # Why did i normalize this?
+            X = X.to_numpy()
+            y = y.to_numpy()
 
             # Split the data
             X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=42)
 
-            X_train = X_train.to_numpy()
-            X_test = X_test.to_numpy()
+            # Use regex since tensors is a string
+            pattern = r'\d+'  
+
+            new_y = np.array([int(re.findall(pattern, val)[0]) for val in  y])
+            y = new_y
 
             X_train = torch.from_numpy(X_train).float()
             X_test = torch.from_numpy(X_test).float()
 
-            print(type(X_train))
-            print(type(X_test))
-
-            # Use regex since tensors is a string
-            pattern = r'\d+'  
-
             new = np.array([int(re.findall(pattern, val)[0]) for val in  y_train])
             y_train = torch.from_numpy(new)
  
-            y_test = y_test.to_numpy()
             y_true = np.array([int(re.findall(pattern, val)[0]) for val in  y_test])
             y_true = torch.tensor(y_true.reshape(-1, 1))
 
-            train_loader = DataLoader(MyDataset(X_train, y_train), batch_size=150, shuffle=True)
-            val_loader = DataLoader(MyDataset(X_test, y_true), batch_size=150, shuffle=False)
-
-            '''
-            # Train the model
-            clf = RandomForestClassifier(n_estimators=300, random_state=42)
-            clf.fit(X_train, y_train)
-
-            # Make predictions
-            y_pred = clf.predict(X_test)
-            '''
-
-            '''
-            model =  Sequential()
-            model.add(keras.layers.Dense(1000, activation='sigmoid'))
-            model.add(keras.layers.Dense(512, activation='sigmoid'))
-            model.add(keras.layers.Dense(256, activation='sigmoid'))
-            model.add(keras.layers.Dense(1, activation='sigmoid'))
-
-            
-
-            model.compile(optimizer='adam', loss='binary_crossentropy', metrics=[keras.metrics.AUC()])
-
-            model.fit(X_train, y_train, epochs=10)
-            '''
-
-            '''
-             # Use regex since tensors is a string
-            
-            pattern = r'\d+'  
-            new_y_pred = np.array([int(re.findall(pattern, val)[0]) for val in  y_pred])
-
-            '''
+            # New try
+            train_dataset = MyDataset(X_train, y_train)
+            #test_dataset = MyDataset(X_test, y_true)
+            trainloader = torch.utils.data.DataLoader(train_dataset, batch_size=150, shuffle=True, num_workers=0)
+            #testloader = torch.utils.data.DataLoader(test_dataset, batch_size=150, shuffle=False, num_workers=0)
 
             input_size = (X_train.shape)[1]
             hidden_size = 1024
@@ -150,84 +96,44 @@ for t in [2, 3, 4]:
 
             print(model)
 
-            threshold = 0.5
-
             model.train()
 
             for epoch in range(10):
-                for data in train_loader:
+
+                current_loss = 0.0
+                
+                for i, data in enumerate(trainloader, 0):
                     optimizer.zero_grad()
 
-                    x,y = data
+                    x, y = data
                     y = y.type(torch.float32)
                     y = y.unsqueeze(1)
-                    y_pred = model(x)
 
-                    for_auroc = torch.argmax(y_pred, dim=1)
+                    outputs = model(x)
 
-                    loss = criterion(y_pred, y)
+                    loss = criterion(outputs, y)
+
                     loss.backward()
                     optimizer.step()
-                
-                with torch.no_grad():
-                    total_y_true, total_y_pred = [], []  # Accumulate for entire validation set
-                    for data in val_loader:
-                        x, y = data
-                        y_pred = model(x)     
-                        y_pred = torch.argmax(y_pred, dim=1)
-                        total_y_true.extend(y.cpu().numpy())  # Convert tensors to lists for scikit-learn
-                        total_y_pred.extend(y_pred.cpu().numpy())  # Detach and convert to numpy
 
-                    new_y_true = [item[0] for item in total_y_true]
+                    current_loss += loss.item()
 
-                    new_y_true = torch.tensor(new_y_true)
-                    total_y_pred = torch.tensor(total_y_pred)
-
-                    new_y_true = new_y_true.unsqueeze(1)
-                    total_y_pred = total_y_pred.unsqueeze(1)
-
-                    total_y_pred = total_y_pred.type(torch.int32)
-
-                    accuracy = accuracy_score(new_y_true, total_y_pred)
-                    auroc = roc_auc_score(new_y_true, total_y_pred)
-                    print('\tEpoch %d | AUROC %0.3f | Accuracy %0.3f | Loss %6.2f' % (epoch + 1, auroc, accuracy, loss.item()))
-
+                    if i % 40 == 0:
+                        print('\tEpoch %d | Batch %d | Loss %6.2f' % (epoch + 1, i, loss.item()))
+                        current_loss = 0.0
 
             model.eval()
 
             with torch.no_grad():
+
                 y_pred = model(X_test)
 
-                y_pred = torch.argmax(y_pred, dim=1)
-
-                y_true = y_true.view(y_pred.shape)
-
-                y_true = y_true.unsqueeze(1)
-                y_pred = y_pred.unsqueeze(1)
-
-                input_dict = {"y_true": y_true, "y_pred":y_pred}
+                input_dict = {"y_true": y_true, "y_pred": y_pred}
 
                 res = (evaluator.eval(input_dict=input_dict))
                 auroc = (res['rocauc'])
                 print(f'AUROC: {auroc:.3f}')
-
-                # AUROC (Note: Only applicable to binary classification tasks)
-                try:
-                    #auroc = roc_auc_score(y_true, clf.predict_proba(X_test)[:, 1])
-                    auroc2 = roc_auc_score(y_true, y_pred)
-                    print(f'AUROC2: {auroc2:.2f}')
-                except ValueError:
-                    print("AUROC could not be calculated - this might be due to a multi-class problem or only one class present in y_true.")
-            #y_pred = torch.tensor(new_y_pred.reshape(-1, 1))
-
-            '''
-            model.evaluate(X_test, y_true)
-
-            y_pred = model.predict(X_test)
-            '''
-
         
-
             '''
             # Evaluate the model
             accuracy = accuracy_score(y_true, y_pred)
@@ -266,15 +172,11 @@ for t in [2, 3, 4]:
             plt.xlabel('Label')
             plt.ylabel('Count')
             plt.savefig(count_dir + "nclusters" + str(t) + "_ncubes" + str(j) + "_percoverlap" + str(k) + ".png")
-           
             '''
 
-            
-            
+            # Write to CSV
             csv_columns = ["n_clusters", "n_cubes", "percent_overlap", "AUROC"]
 
-            with open('RF_Metrics_MF_MLP_Torch.csv', 'a', newline='') as csvfile:
+            with open('RF_Metrics_MF_FF_MLP.csv', 'a', newline='') as csvfile:
                 writer = csv.DictWriter(csvfile, fieldnames=csv_columns)
                 writer.writerow({'n_clusters': t, 'n_cubes': j, 'percent_overlap': k,"AUROC": auroc})
-            
-            # Write to CSV
